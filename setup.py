@@ -6,31 +6,33 @@
 import os
 import subprocess
 
-# The version is derived from the git checkout so that it moves on every
-# commit, without anyone having to remember to bump it.  Consumers install
-# this fork straight from a git URL, and pip compares only the version
-# string, so a version that does not move means an installed copy is never
-# replaced.
+# The version is derived from the git checkout so that it moves on its own,
+# without anyone having to remember to bump it.  Consumers install this fork
+# straight from a git URL, and pip compares only the version string, so a
+# version that does not move means an installed copy is never replaced.
 #
-# Scheme: <year - 2020>.<month>.<day>.<number of commits>.  Each field is
-# compared numerically by PEP 440, so the value only ever increases: the
-# date leads across days, and the commit count breaks ties between several
-# commits landing on the same day.
+# Scheme: <year - 2020>.<month>.<day>, from the date of the most recent
+# commit.  PEP 440 compares each field numerically, so the value increases
+# with the date and leading zeros are normalised away -- 6.08.27 and 6.8.27
+# are the same version.  Note that this has day granularity: a second commit
+# on the same day produces the same version as the first, and consumers who
+# already installed that day will not pick it up.
 #
 # _FALLBACK_VERSION is used when git is unavailable -- an unpacked sdist or
-# a source tarball with no .git directory.  It only needs to stay below any
-# version this function returns.
+# a source tarball with no .git directory.
 _FALLBACK_VERSION = "6.8.27"
 
 
-def _git(here, args):
-    """Run git in `here`, returning its stdout, or None if that failed."""
+def _git_version():
+    """Derive a version from the git checkout, or return None."""
+    here = os.path.dirname(os.path.abspath(__file__))
     try:
         # not a `with` block and not check_output(): this file still has to
         # run under Python 2.6, where Popen is not a context manager and
         # check_output does not exist yet
         proc = subprocess.Popen(
-            ["git"] + args, cwd=here,
+            ["git", "log", "-1", "--format=%cd", "--date=format:%Y %m %d"],
+            cwd=here,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         out = proc.communicate()[0]
     except OSError:
@@ -39,25 +41,14 @@ def _git(here, args):
     if proc.returncode != 0:
         # not a git checkout
         return None
-    return out.decode("ascii", "replace")
-
-
-def _git_version():
-    """Derive a version from the git checkout, or return None."""
-    here = os.path.dirname(os.path.abspath(__file__))
-    date = _git(here, ["log", "-1", "--format=%cd",
-                       "--date=format:%Y %m %d"])
-    count = _git(here, ["rev-list", "--count", "HEAD"])
-    if date is None or count is None:
-        return None
-    fields = date.split() + count.split()
-    if len(fields) != 4:
+    fields = out.decode("ascii", "replace").split()
+    if len(fields) != 3:
         return None
     try:
-        year, month, day, commits = (int(field) for field in fields)
+        year, month, day = (int(field) for field in fields)
     except ValueError:
         return None
-    return "{0}.{1}.{2}.{3}".format(year - 2020, month, day, commits)
+    return "{0}.{1}.{2}".format(year - 2020, month, day)
 
 
 try:
